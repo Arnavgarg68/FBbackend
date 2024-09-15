@@ -1,3 +1,7 @@
+// schema is username(unique like a handle for social),password(hashed),details(can be used in future to filter or show similar fields recomendations),Friends (array to handle 1-> pending requested to be accepted/rejected by user , 2-> accepted the friends which are confirmed from both the sides ,3-> requests made by user to other people for friends) 
+
+
+
 const { Schema, model } = require('mongoose')
 const userschema = new Schema({
     username: {
