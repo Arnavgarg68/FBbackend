@@ -27,7 +27,7 @@ const authVerify = (req, res, next) => {
         next();
     } catch (error) {
         console.log(error);
-        res.status(400).json({ errormsg: "Invalid token" })
+        res.status(400).json({ errormsg: "Invalid token" ,type:"token" })
     }
 }
 
@@ -129,7 +129,6 @@ router.post('/login', async (req, res) => {
 // 3) Route to send all friends list including the recommendations
 router.get('/list', authVerify, async (req, res) => {
     const { username } = req.user;
-    console.log(username);
 
     try {
         const user = await User.findOne({ username: username });
@@ -139,26 +138,50 @@ router.get('/list', authVerify, async (req, res) => {
         }
 
         const result = await User.aggregate([
+            // Match the current user
             { $match: { _id: user._id } },
 
+            // Lookup the pending friends (populate pending)
             {
                 $lookup: {
-                    from: 'users',
-                    localField: 'friends.accepted',
-                    foreignField: '_id',
-                    as: 'friendsAccepted'
+                    from: 'users',           // Collection name (users)
+                    localField: 'friends.pending',  // Field in the user document
+                    foreignField: '_id',     // Match to users' _id
+                    as: 'friendsPending'    // Output field for pending friends
                 }
             },
 
+            // Lookup the requested friends (populate requested)
             {
                 $lookup: {
-                    from: 'users',
-                    localField: 'friendsAccepted.friends.accepted',
-                    foreignField: '_id',
-                    as: 'friendsOfFriends'
+                    from: 'users',           // Collection name (users)
+                    localField: 'friends.requested',  // Field in the user document
+                    foreignField: '_id',     // Match to users' _id
+                    as: 'friendsRequested'    // Output field for requested friends
                 }
             },
 
+            // Lookup the accepted friends (populate accepted)
+            {
+                $lookup: {
+                    from: 'users',           // Collection name (users)
+                    localField: 'friends.accepted',  // Field in the user document
+                    foreignField: '_id',     // Match to users' _id
+                    as: 'friendsAccepted'    // Output field for accepted friends
+                }
+            },
+
+            // Lookup friends of friends (friends of accepted friends)
+            {
+                $lookup: {
+                    from: 'users',  // Collection name
+                    localField: 'friendsAccepted.friends.accepted',  // Field in the accepted friends
+                    foreignField: '_id',  // Match to users' _id
+                    as: 'friendsOfFriends' // Output field for friends of friends
+                }
+            },
+
+            // Filter out already accepted friends from friendsOfFriends
             {
                 $addFields: {
                     friendsOfFriends: {
@@ -166,72 +189,24 @@ router.get('/list', authVerify, async (req, res) => {
                             input: "$friendsOfFriends",
                             as: "fof",
                             cond: {
-                                $and: [
-                                    { $not: { $in: ["$$fof._id", "$friendsAccepted._id"] } },
-                                    { $ne: ["$$fof._id", "$_id"] }
-                                ]
+                                $not: {
+                                    $in: ["$$fof._id", "$friendsAccepted._id"]
+                                }
                             }
                         }
                     }
                 }
             },
 
-            { $unwind: "$friendsOfFriends" },
-
-            {
-                $lookup: {
-                    from: 'users',
-                    localField: 'friendsOfFriends._id',
-                    foreignField: '_id',
-                    as: 'fofDetails'
-                }
-            },
-
-            {
-                $addFields: {
-                    mutualFriends: {
-                        $size: {
-                            $setIntersection: [
-                                "$friendsAccepted._id",
-                                { $ifNull: ["$friendsOfFriends.friends.accepted", []] }
-                            ]
-                        }
-                    }
-                }
-            },
-
-            { $sort: { mutualFriends: -1 } },
-
-            {
-                $group: {
-                    _id: "$_id",
-                    username: { $first: "$username" },
-                    friendsPending: { $first: "$friendsPending" },
-                    friendsRequested: { $first: "$friendsRequested" },
-                    friendsAccepted: { $first: "$friendsAccepted" },
-                    suggestedFriends: {
-                        $push: {
-                            user: "$friendsOfFriends",
-                            mutualFriends: "$mutualFriends"
-                        }
-                    }
-                }
-            },
-
+            // Project to shape the output (select only necessary fields)
             {
                 $project: {
                     _id: 0,
-                    username: 1,
-                    friendsPending: 1,
-                    friendsRequested: 1,
-                    friendsAccepted: 1,
-                    suggestedFriends: {
-                        $filter: {
-                            input: "$suggestedFriends",
-                            as: "friend",
-                            cond: { $gt: ["$$friend.mutualFriends", 0] }
-                        }
-                    }
+                    username: 1,      // Return the username of the user
+                    'friendsPending': 1,
+                    'friendsRequested': 1,
+                    'friendsAccepted': 1,
+                    'friendsOfFriends': 1
                 }
             }
         ]);
@@ -240,12 +215,15 @@ router.get('/list', authVerify, async (req, res) => {
             return res.status(400).json({ errormsg: "User not found" });
         }
 
-        res.json(result[0]);
+        // Send the processed result
+        res.json(result[0]);  // Since result is an array, use result[0]
     } catch (error) {
         console.log(error);
         res.status(500).json({ errormsg: error.message });
     }
 });
+
+
 
 // 4) search people currently on one person later on can show many results
 router.post('/search', authVerify, async (req, res) => {
@@ -258,6 +236,9 @@ router.post('/search', authVerify, async (req, res) => {
     try {
         const frienduser = await User.findOne({ username: searchuser })
         const user = await User.findOne({ username: username })
+        if(!user||!frienduser){
+            return res.status(400).json({errormsg:"user/friend not found"})
+        }
         if(user._id.equals(frienduser._id)){
             return res.status(200).json({errormsg:"Searching yourself isn't a cool practice"})
         }
