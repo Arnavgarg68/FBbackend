@@ -21,7 +21,6 @@ const authVerify = (req, res, next) => {
     try {
         const decoded = jwt.verify(token, key);
         req.user = decoded;
-        console.log(decoded)
         next();
     } catch (error) {
         console.log(error);
@@ -78,7 +77,6 @@ router.post('/create', async (req, res) => {
     });
     try {
         const savedUser = await user.save();
-        console.log(savedUser);
         const token = authjwt({ username: username }, key, options);
         res.status(200).json({ token: token });
     } catch (err) {
@@ -106,7 +104,6 @@ router.post('/login', async (req, res) => {
     if (!user) {
         return res.json({ errormsg: "User dont exist try another username" })
     }
-    console.log(!hashverify(password, user.password))
     if (!await hashverify(password, user.password)) {
         return res.status(400).json({ errormsg: "Incorrect username/password" })
     }
@@ -114,12 +111,10 @@ router.post('/login', async (req, res) => {
         const token = authjwt({ username: username }, key, options);
         res.status(200).json({ token: token });
     }
-    console.log(user);
 })
 //send friendsdetails
 router.get('/list', authVerify, async (req, res) => {
     const { username } = req.user;
-    console.log(username);
 
     try {
         const user = await User.findOne({ username: username });
@@ -172,6 +167,23 @@ router.get('/list', authVerify, async (req, res) => {
                 }
             },
 
+            // Filter out already accepted friends from friendsOfFriends
+            {
+                $addFields: {
+                    friendsOfFriends: {
+                        $filter: {
+                            input: "$friendsOfFriends",
+                            as: "fof",
+                            cond: {
+                                $not: {
+                                    $in: ["$$fof._id", "$friendsAccepted._id"]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+
             // Project to shape the output (select only necessary fields)
             {
                 $project: {
@@ -199,10 +211,10 @@ router.get('/list', authVerify, async (req, res) => {
 
 
 
+
 // search people currently on one person later on can show many results
 router.post('/search', authVerify, async (req, res) => {
     const { username } = req.user;
-    console.log(username)
     const { search } = req.body;
     const searchuser = search.trim(' ').toLowerCase();
     if (!searchuser || !username) {
@@ -260,8 +272,6 @@ router.post('/addfriend', authVerify, async (req, res) => {
         friend.friends.pending.push(user._id);
         await user.save();
         await friend.save();
-        console.log(friend)
-        console.log(user)
         res.status(200).json({ success: "request sent successfully" });
 
     } catch (error) {
