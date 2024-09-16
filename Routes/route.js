@@ -10,6 +10,7 @@ const options = {
     expiresIn: "1h"
 }
 // Middlewares
+
 //  1)      authjwt to create a jwt token
 const authjwt = (payload, key, options) => {
     return jwt.sign(payload, key, options)
@@ -55,7 +56,7 @@ const hashverify = async (pass, hpass) => {
 
 // route just to check working of server
 router.get('/ping', async (req, res) => {
-    res.json("kuhdfudsfndskf");
+    res.json("Server working perfectly");
 })
 
 // application routes
@@ -141,43 +142,43 @@ router.get('/list', authVerify, async (req, res) => {
             // Match the current user
             { $match: { _id: user._id } },
 
-            // Lookup the pending friends (populate pending)
+            // Lookup the pending friends
             {
                 $lookup: {
-                    from: 'users',           // Collection name (users)
-                    localField: 'friends.pending',  // Field in the user document
-                    foreignField: '_id',     // Match to users' _id
-                    as: 'friendsPending'    // Output field for pending friends
+                    from: 'users',
+                    localField: 'friends.pending', 
+                    foreignField: '_id',   
+                    as: 'friendsPending' 
                 }
             },
 
-            // Lookup the requested friends (populate requested)
+            // Lookup the requested not neccessary as not showing in frontend
             {
                 $lookup: {
-                    from: 'users',           // Collection name (users)
-                    localField: 'friends.requested',  // Field in the user document
-                    foreignField: '_id',     // Match to users' _id
-                    as: 'friendsRequested'    // Output field for requested friends
+                    from: 'users',           
+                    localField: 'friends.requested',  
+                    foreignField: '_id',  
+                    as: 'friendsRequested'    
                 }
             },
 
-            // Lookup the accepted friends (populate accepted)
+            // Lookup the accepted friends
             {
                 $lookup: {
-                    from: 'users',           // Collection name (users)
-                    localField: 'friends.accepted',  // Field in the user document
-                    foreignField: '_id',     // Match to users' _id
-                    as: 'friendsAccepted'    // Output field for accepted friends
+                    from: 'users',          
+                    localField: 'friends.accepted', 
+                    foreignField: '_id',     
+                    as: 'friendsAccepted'    
                 }
             },
 
-            // Lookup friends of friends (friends of accepted friends)
+            // Lookup friends of friends
             {
                 $lookup: {
-                    from: 'users',  // Collection name
-                    localField: 'friendsAccepted.friends.accepted',  // Field in the accepted friends
-                    foreignField: '_id',  // Match to users' _id
-                    as: 'friendsOfFriends' // Output field for friends of friends
+                    from: 'users', 
+                    localField: 'friendsAccepted.friends.accepted',
+                    foreignField: '_id',  
+                    as: 'friendsOfFriends' 
                 }
             },
 
@@ -198,19 +199,64 @@ router.get('/list', authVerify, async (req, res) => {
                 }
             },
 
-            // Project to shape the output (select only necessary fields)
+            // Project to shape the output
+            // {
+            //     $project: {
+            //         _id: 0,
+            //         username: 1,     
+            //         'friendsPending': 1,
+            //         'friendsRequested': 1,
+            //         'friendsAccepted': 1,
+            //         'friendsOfFriends': 1
+            //     }
+            // }
             {
-                $project: {
-                    _id: 0,
-                    username: 1,      // Return the username of the user
-                    'friendsPending': 1,
-                    'friendsRequested': 1,
-                    'friendsAccepted': 1,
-                    'friendsOfFriends': 1
+            $project: {
+                _id: 0,
+                username: 1,     
+                friendsPending: {
+                    $map: {
+                        input: "$friendsPending",
+                        as: "friend",
+                        in: {
+                            username: "$$friend.username",
+                            details: "$$friend.details"
+                        }
+                    }
+                },
+                friendsRequested: {
+                    $map: {
+                        input: "$friendsRequested",
+                        as: "friend",
+                        in: {
+                            username: "$$friend.username",
+                            details: "$$friend.details"
+                        }
+                    }
+                },
+                friendsAccepted: {
+                    $map: {
+                        input: "$friendsAccepted",
+                        as: "friend",
+                        in: {
+                            username: "$$friend.username",
+                            details: "$$friend.details"
+                        }
+                    }
+                },
+                friendsOfFriends: {
+                    $map: {
+                        input: "$friendsOfFriends",
+                        as: "friend",
+                        in: {
+                            username: "$$friend.username",
+                            details: "$$friend.details"
+                        }
+                    }
                 }
             }
+        }
         ]);
-
         if (!result || result.length === 0) {
             return res.status(400).json({ errormsg: "User not found" });
         }
